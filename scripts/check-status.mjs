@@ -82,8 +82,14 @@ async function checkWebhookInfo(token, baseUrl) {
   const info = r.data.result
   const expected = baseUrl ? `${baseUrl}/webhook` : null
   const urlOk = expected ? info.url === expected : Boolean(info.url)
+  const lastErrDate = info.last_error_date ? new Date(info.last_error_date * 1000).toISOString() : null
   let msg = `url=${info.url || '<none>'}; pending=${info.pending_update_count}`
   if (expected) msg += `; expected=${expected}`
+  if (info.ip_address) msg += `; ip=${info.ip_address}`
+  if (typeof info.max_connections === 'number') msg += `; max_conn=${info.max_connections}`
+  if (typeof info.has_custom_certificate === 'boolean') msg += `; custom_cert=${info.has_custom_certificate}`
+  if (info.last_error_message) msg += `; last_error_message=${info.last_error_message}`
+  if (lastErrDate) msg += `; last_error_date=${lastErrDate}`
   return { ok: urlOk, details: msg }
 }
 

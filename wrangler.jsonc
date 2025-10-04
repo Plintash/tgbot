@@ -1,10 +1,11 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "flare_bot",
+  "name": "flare-bot",
   "main": "src/index.ts",
   "compatibility_date": "2025-10-04",
   "vars": {
-    "BASE_URL": "https://flare_bot.plintash.workers.dev"
+    "BASE_URL": "https://flare-bot.plintash.workers.dev",
+    "AUTO_WEBHOOK_INIT": "true"
   }
   // "compatibility_flags": [
   //   "nodejs_compat"

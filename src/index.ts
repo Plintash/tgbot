@@ -105,6 +105,21 @@ async function sendMessage(token: string, chatId: number, text: string) {
 
 // One-time webhook initializer: delete previous and set current webhook
 let webhookInitPromise: Promise<void> | null = null
+// Fetch public info from an external API to reply with
+async function fetchPublicInfo(): Promise<string> {
+  try {
+    const res = await fetch('https://api.github.com/zen', {
+      headers: { 'User-Agent': 'flare_bot' },
+    })
+    const text = await res.text()
+    if (!res.ok) {
+      return `API error ${res.status}: ${text}`
+    }
+    return `GitHub Zen: ${text.trim()}`
+  } catch (err: any) {
+    return `API request failed: ${err?.message || String(err)}`
+  }
+}
 async function configureWebhook(env: Bindings) {
   const token = env.BOT_API_TOKEN
   const baseUrl = env.BASE_URL?.replace(/\/$/, '')
@@ -138,7 +153,7 @@ async function configureWebhook(env: Bindings) {
         url: `${baseUrl}/webhook`,
         secret_token: secret,
         max_connections: 40,
-        allowed_updates: ['message', 'edited_message'],
+        allowed_updates: ['message', 'edited_message', 'channel_post', 'callback_query'],
       }),
     })
     const setData = await setRes.json().catch(async () => ({ ok: false, description: await setRes.text() }))
@@ -192,14 +207,15 @@ app.post('/webhook', async (c) => {
     return c.text('ok')
   }
 
-  const greeting = buildGreeting(message.from)
   const chatId = message.chat.id
+  console.log(`[${reqId}] Incoming message chat=${chatId} text=${message.text || ''}`)
 
   // Respond quickly; perform Telegram call in background
   c.executionCtx.waitUntil(
     (async () => {
       try {
-        await sendMessage(c.env.BOT_API_TOKEN, chatId, greeting)
+        const info = await fetchPublicInfo()
+        await sendMessage(c.env.BOT_API_TOKEN, chatId, info)
       } catch (err) {
         console.error('sendMessage threw', err)
       }
@@ -228,7 +244,7 @@ app.get('/set-webhook', async (c) => {
       url: webhookUrl,
       secret_token: secret,
       max_connections: 40,
-      allowed_updates: ['message', 'edited_message'],
+      allowed_updates: ['message', 'edited_message', 'channel_post', 'callback_query'],
     }),
   })
 
@@ -238,6 +254,14 @@ app.get('/set-webhook', async (c) => {
     return c.json({ ok: false, status: res.status, data }, 500)
   }
   return c.json({ ok: true, result: data })
+})
+
+// Diagnostics: check if secrets are bound in runtime (no sensitive values returned)
+app.get('/env-check', (c) => {
+  const hasToken = Boolean(c.env.BOT_API_TOKEN && c.env.BOT_API_TOKEN.length > 10)
+  const hasSecret = Boolean(c.env.WEBHOOK_SECRET_TOKEN && c.env.WEBHOOK_SECRET_TOKEN.length > 0)
+  const base = c.env.BASE_URL || ''
+  return c.json({ ok: true, hasToken, hasSecret, baseUrl: base })
 })
 
 export default app
