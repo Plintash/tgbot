@@ -4,7 +4,9 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy --minify",
-    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings",
+    "check:status": "node scripts/check-status.mjs",
+    "postdeploy": "node scripts/trigger-set-webhook.mjs"
   },
   "dependencies": {
     "hono": "^4.9.9"

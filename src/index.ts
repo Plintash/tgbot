@@ -4,6 +4,7 @@ type Bindings = {
   BOT_API_TOKEN: string
   WEBHOOK_SECRET_TOKEN?: string
   BASE_URL?: string
+  AUTO_WEBHOOK_INIT?: string
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -88,11 +89,82 @@ async function sendMessage(token: string, chatId: number, text: string) {
       disable_web_page_preview: true,
     }),
   })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    console.error('Telegram sendMessage failed', res.status, body)
+  let data: any
+  try {
+    const ct = res.headers.get('content-type') || ''
+    data = ct.includes('application/json') ? await res.json() : await res.text()
+  } catch {
+    data = await res.text().catch(() => '')
+  }
+  if (!res.ok || (data && data.ok === false)) {
+    console.error('Telegram sendMessage failed', res.status, data)
+  } else {
+    console.log('Telegram sendMessage ok', typeof data === 'string' ? data : JSON.stringify(data))
   }
 }
+
+// One-time webhook initializer: delete previous and set current webhook
+let webhookInitPromise: Promise<void> | null = null
+async function configureWebhook(env: Bindings) {
+  const token = env.BOT_API_TOKEN
+  const baseUrl = env.BASE_URL?.replace(/\/$/, '')
+  const secret = env.WEBHOOK_SECRET_TOKEN
+
+  // Always attempt to delete existing webhook to ensure a clean state
+  try {
+    const delRes = await fetch(`${TELEGRAM_API(token)}/deleteWebhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ drop_pending_updates: true }),
+    })
+    const delData = await delRes.json().catch(async () => ({ ok: false, description: await delRes.text() }))
+    if (!delRes.ok || !delData.ok) {
+      console.warn('deleteWebhook did not succeed', delRes.status, delData)
+    }
+  } catch (err) {
+    console.warn('deleteWebhook error', err)
+  }
+
+  if (!baseUrl) {
+    console.warn('configureWebhook skipped: BASE_URL not configured')
+    return
+  }
+  // Register the current webhook
+  try {
+    const setRes = await fetch(`${TELEGRAM_API(token)}/setWebhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url: `${baseUrl}/webhook`,
+        secret_token: secret,
+        max_connections: 40,
+        allowed_updates: ['message', 'edited_message'],
+      }),
+    })
+    const setData = await setRes.json().catch(async () => ({ ok: false, description: await setRes.text() }))
+    if (!setRes.ok || !setData.ok) {
+      console.error('setWebhook failed', setRes.status, setData)
+    } else {
+      console.log('Webhook configured')
+    }
+  } catch (err) {
+    console.error('setWebhook error', err)
+  }
+}
+
+// Middleware to trigger one-time webhook configuration at app startup
+app.use('*', async (c, next) => {
+  // Only run auto webhook init when explicitly enabled
+  const enabled = (c.env.AUTO_WEBHOOK_INIT || '').toLowerCase() === 'true'
+  if (enabled && !webhookInitPromise) {
+    webhookInitPromise = configureWebhook(c.env).catch((err) => {
+      console.error('Webhook init failed', err)
+      webhookInitPromise = null
+    })
+    c.executionCtx.waitUntil(webhookInitPromise)
+  }
+  return next()
+})
 
 // Webhook receiver
 app.post('/webhook', async (c) => {
@@ -124,7 +196,15 @@ app.post('/webhook', async (c) => {
   const chatId = message.chat.id
 
   // Respond quickly; perform Telegram call in background
-  c.executionCtx.waitUntil(sendMessage(c.env.BOT_API_TOKEN, chatId, greeting))
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        await sendMessage(c.env.BOT_API_TOKEN, chatId, greeting)
+      } catch (err) {
+        console.error('sendMessage threw', err)
+      }
+    })()
+  )
 
   console.log(`[${reqId}] Update processed for chat ${chatId}`)
   return c.text('ok')

@@ -2,7 +2,10 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "flare_bot",
   "main": "src/index.ts",
-  "compatibility_date": "2025-10-04"
+  "compatibility_date": "2025-10-04",
+  "vars": {
+    "BASE_URL": "https://flare_bot.plintash.workers.dev"
+  }
   // "compatibility_flags": [
   //   "nodejs_compat"
   // ],
